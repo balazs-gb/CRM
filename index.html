@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#2e2e2e;--line:#e6e6e6;--text:#2b2b2b;
---cols:minmax(130px,1.2fr) minmax(200px,2.6fr) minmax(120px,1.3fr) 116px 70px 84px minmax(160px,1.4fr);}
+--cols:minmax(130px,1.2fr) minmax(200px,2.6fr) minmax(110px,1.1fr) 116px 70px 110px minmax(160px,1.4fr);}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:#fff;font-family:'Outfit',system-ui,sans-serif;font-size:17px;font-weight:500}
 main{max-width:1280px;margin:0 auto;padding:48px 24px 80px}
@@ -30,6 +30,14 @@ button.go:disabled{opacity:.5;cursor:wait}
 .chk{appearance:none;-webkit-appearance:none;width:24px;height:24px;margin:0;border:2px solid currentColor;background:none;cursor:pointer;flex:none;border-radius:2px}
 .chk:checked{background:linear-gradient(to top right,transparent 45%,currentColor 45% 55%,transparent 55%),linear-gradient(to bottom right,transparent 45%,currentColor 45% 55%,transparent 55%)}
 #msg{min-height:24px;margin:-36px 0 24px;color:#f0a38c}
+.admin{display:none;align-items:center;flex-wrap:wrap;gap:16px 44px;margin:0 0 48px;padding:0 16px}
+.admin.on{display:flex}
+.st{color:#7d7d7d}
+.st b{color:#fff;font-weight:700;margin-left:8px}
+.search{flex:1 1 280px;max-width:440px;display:flex;align-items:center;gap:8px;border-radius:24px;box-shadow:inset 0 0 0 2px var(--line);padding:7px 16px}
+.search input{flex:1;min-width:0;background:transparent;border:0;color:#fff;font:inherit;padding:0;outline:0}
+.search input::placeholder{color:#7d7d7d}
+.search button{background:none;border:0;color:#fff;padding:0;display:flex;cursor:pointer}
 .wrap{overflow-x:auto}
 .table{min-width:1000px}
 .head,.row{display:grid;grid-template-columns:var(--cols);align-items:stretch}
@@ -40,7 +48,6 @@ button.go:disabled{opacity:.5;cursor:wait}
 .row{flex:none}
 .row>*:nth-child(odd){background:rgba(0,0,0,.07)}
 .head>*:nth-child(5),.row>*:nth-child(5){justify-content:center;padding-left:0;padding-right:0}
-.row input[type=time]::-webkit-calendar-picker-indicator{display:none}
 .row.asap{background:#000;color:#fff}
 .row.asap>*{background:none!important}
 .row.done{background:#cfcfcf;color:#8d8d8d}
@@ -84,8 +91,17 @@ button.go:disabled{opacity:.5;cursor:wait}
 </form>
 <div id="msg" role="status"></div>
 
+<div class="admin" id="admin">
+ <span class="st">Összes projekt a hónapban: <b id="s-month">0</b></span>
+ <span class="st">Hátra van még: <b id="s-left">0</b></span>
+ <div class="search">
+  <input id="q" type="text" placeholder="Keresés" aria-label="Keresés a projektek elnevezésében" autocomplete="off">
+  <button type="button" id="qx" aria-label="Keresés"></button>
+ </div>
+</div>
+
 <div class="wrap"><div class="table">
- <div class="head"><div>Kliens</div><div>Projekt elnevezése</div><div>Content manager</div><div>Határidő</div><div>ASAP</div><div>Óra</div><div>Státusz</div></div>
+ <div class="head"><div>Kliens</div><div>Projekt elnevezése</div><div>CM</div><div>Határidő</div><div>ASAP</div><div>Óra</div><div>Státusz</div></div>
  <div class="rows" id="rows"></div>
 </div></div>
 </main>
@@ -181,10 +197,29 @@ function editable(c,t,field,type){
   c.addEventListener('keydown',e=>{ if(e.key==='Enter') open(); });
 }
 
+const MAG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>';
+const XIC='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+let q='';
+
+function stats(){
+  const n=new Date(), ym=n.getFullYear()+'-'+pad(n.getMonth()+1);
+  $('#s-month').textContent=state.tasks.filter(t=>(t.deadline||'').startsWith(ym)).length;
+  $('#s-left').textContent=state.tasks.filter(t=>t.status!=='Kész').length;
+}
+function setQ(v){
+  q=v; const b=$('#qx');
+  b.innerHTML=v?XIC:MAG; b.setAttribute('aria-label',v?'Keresés törlése':'Keresés');
+  render();
+}
+
 function render(){
+  stats();
   const box=$('#rows'); box.textContent='';
-  if(!state.tasks.length){ const e=document.createElement('div'); e.className='empty'; e.textContent='Még nincs projekt. Add hozzá fent.'; box.append(e); return; }
-  for(const t of sorted()){
+  const nd=norm(q.trim());
+  const list=sorted().filter(t=>!nd||norm(t.name).includes(nd));
+  if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent=state.tasks.length?'Nincs találat.':'Még nincs projekt. Add hozzá fent.'; box.append(e); return; }
+  for(const t of list){
     const r=document.createElement('div'); r.className='row';
     if(t.status==='Kész') r.classList.add('done');
     else if(t.asap) r.classList.add('asap');
@@ -236,6 +271,13 @@ $('#form').addEventListener('submit',async e=>{
   catch(err){ say('Nem sikerült elküldeni. Próbáld újra.'); }
   b.disabled=false; b.textContent='MEHET';
 });
+
+if(ADMIN){
+  $('#admin').classList.add('on');
+  $('#qx').innerHTML=MAG;
+  $('#q').addEventListener('input',e=>setQ(e.target.value));
+  $('#qx').addEventListener('click',()=>{ $('#q').value=''; setQ(''); $('#q').focus(); });
+}
 
 load();
 setInterval(()=>{ if(!document.hidden && !document.querySelector('#rows input')) load(); },60000);
