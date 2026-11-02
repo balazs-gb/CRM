@@ -20,7 +20,7 @@ label.t{display:block;font-weight:700;margin-bottom:10px}
 .fields>*{background:transparent;color:#fff;border:0;border-right:2px solid var(--line);padding:11px 16px;font:inherit;min-width:0;color-scheme:dark}
 .fields>*:last-child{border-right:0}
 .fields select{flex:1.2}.fields input[name=name]{flex:2.6}.fields input[name=manager]{flex:1.3}
-.fields input[type=date]{flex:1}.fields input[type=time]{flex:.8}
+.fields .md{flex:1}.fields input[type=time]{flex:.8}
 .fields ::placeholder{color:#7d7d7d}
 .fields select:invalid{color:#7d7d7d}
 .fields option{color:#000}
@@ -42,9 +42,13 @@ button.go:disabled{opacity:.5;cursor:wait}
 .row.asap>*{background:none!important}
 .row.done{background:#cfcfcf;color:#8d8d8d}
 .row .chk{border-color:currentColor}
+.md{display:flex;align-items:center;gap:6px;position:relative;min-width:0;width:100%}
+.md input[type=text]{background:transparent;border:0;color:inherit;font:inherit;padding:0;min-width:0;width:100%}
+.md .cal{background:none;border:0;color:inherit;padding:0;display:flex;cursor:pointer;opacity:.75;flex:none}
+.md .pk{position:absolute;left:0;bottom:0;width:0;height:0;opacity:0;border:0;padding:0;pointer-events:none}
 .editable{cursor:pointer}
 .editable:hover{outline:2px solid rgba(0,0,0,.25);outline-offset:-2px}
-.row input[type=date],.row input[type=time],.row select{font:inherit;color:inherit;background:transparent;border:0;width:100%;padding:0;margin:0;color-scheme:light}
+.row input[type=text],.row input[type=time],.row select{font:inherit;color:inherit;background:transparent;border:0;width:100%;padding:0;margin:0;color-scheme:light}
 .row.asap input,.row.asap select{color-scheme:dark}
 .row select{appearance:none;-webkit-appearance:none;cursor:pointer}
 .row option{color:#000}
@@ -69,7 +73,7 @@ button.go:disabled{opacity:.5;cursor:wait}
   <select name="client" id="f-client" required aria-label="Kliens"><option value="" disabled selected>Kliens</option></select>
   <input name="name" placeholder="Projekt elnevezése" required aria-label="Projekt elnevezése">
   <input name="manager" placeholder="Content manager" required aria-label="Content manager">
-  <input name="deadline" type="date" required aria-label="Határidő" title="Határidő">
+  <span id="dl-slot"></span>
   <input name="time" type="time" aria-label="Óra (ha van)" title="Óra (ha van)">
   <label class="asapf">ASAP <input class="chk" type="checkbox" name="asap"></label>
  </div>
@@ -115,18 +119,60 @@ async function update(t,changes){
 
 function cell(row,text){const c=document.createElement('div');c.textContent=text||'';row.append(c);return c}
 
+const pad=n=>String(n).padStart(2,'0');
+const CAL='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+
+function parseMD(str,ref){
+  const m=str.trim().match(/^(\d{1,2})\s*[.\-\/]\s*(\d{1,2})\.?$/);
+  if(!m) return '';
+  const mo=+m[1], da=+m[2], now=new Date();
+  let y=ref?+ref.slice(0,4):now.getFullYear();
+  if(!ref && (new Date(y,mo-1,da)-now)/864e5<-60) y++;
+  const d=new Date(y,mo-1,da);
+  return d.getMonth()===mo-1&&d.getDate()===da?y+'-'+pad(mo)+'-'+pad(da):'';
+}
+
+function mdField(iso,ref){
+  const box=document.createElement('span'); box.className='md';
+  const t=document.createElement('input'); t.type='text'; t.placeholder='hh.nn'; t.maxLength=6;
+  t.inputMode='numeric'; t.value=short(iso); t.setAttribute('aria-label','Határidő (hónap.nap)');
+  const b=document.createElement('button'); b.type='button'; b.className='cal'; b.innerHTML=CAL; b.setAttribute('aria-label','Naptár');
+  const p=document.createElement('input'); p.type='date'; p.className='pk'; p.tabIndex=-1;
+  let cur=iso||'';
+  const api={box,text:t,onpick:null,get:()=>cur,clear:()=>{cur='';t.value='';t.setCustomValidity('')}};
+  t.addEventListener('input',()=>{ cur=parseMD(t.value,ref); t.setCustomValidity(t.value&&!cur?'Add meg így: hh.nn (pl. 11.05)':''); });
+  b.addEventListener('mousedown',e=>e.preventDefault());
+  b.addEventListener('click',()=>{ p.value=cur; try{p.showPicker()}catch(e){p.click()} });
+  p.addEventListener('change',()=>{ if(!p.value) return; cur=p.value; t.value=short(cur); t.setCustomValidity(''); if(api.onpick) api.onpick(); });
+  box.append(t,b,p); return api;
+}
+
 function editable(c,t,field,type){
   c.classList.add('editable'); c.tabIndex=0; c.title='Kattints a módosításhoz';
   const open=()=>{
-    if(c.querySelector('input')) return;
-    const i=document.createElement('input'); i.type=type; i.value=t[field]||'';
-    c.textContent=''; c.append(i); i.focus();
-    try{ i.showPicker&&i.showPicker() }catch(e){}
+    if(c.querySelector('input,select')) return;
+    let el,get,md;
+    c.textContent='';
+    if(type==='client'){
+      el=document.createElement('select');
+      for(const o of (state.clients.includes(t.client)?state.clients:[t.client,...state.clients])) el.add(new Option(o,o));
+      el.value=t.client; get=()=>el.value; c.append(el);
+    }else if(type==='date'){
+      md=mdField(t.deadline,t.deadline); el=md.text; get=md.get; c.append(md.box);
+    }else{
+      el=document.createElement('input'); el.type=type; el.value=t[field]||''; get=()=>el.value; c.append(el);
+    }
+    el.focus();
     let done=false;
-    const fin=()=>{ if(done) return; done=true;
-      if(i.value!==(t[field]||'') && (field!=='deadline'||i.value)) update(t,{[field]:i.value}); else render(); };
-    i.addEventListener('change',fin); i.addEventListener('blur',fin);
-    i.addEventListener('keydown',e=>{ if(e.key==='Escape'){done=true;render();} });
+    const fin=ok=>{
+      if(done) return; done=true;
+      const v=get();
+      if(ok && (v||field==='time'||field==='asap') && v!==(t[field]||'')) update(t,{[field]:v}); else render();
+    };
+    if(type==='client'||type==='time') el.addEventListener('change',()=>fin(true));
+    if(md) md.onpick=()=>fin(true);
+    c.addEventListener('focusout',e=>{ if(!c.contains(e.relatedTarget)) fin(true); });
+    c.addEventListener('keydown',e=>{ if(e.key==='Enter') fin(true); if(e.key==='Escape') fin(false); });
   };
   c.addEventListener('click',open);
   c.addEventListener('keydown',e=>{ if(e.key==='Enter') open(); });
@@ -143,7 +189,7 @@ function render(){
       const k=Math.max(0,Math.min(9,daysUntil(t.deadline)));
       r.style.background=`hsl(${Math.round(12+113*k/9)} 52% 66%)`;
     }
-    cell(r,t.client); cell(r,t.name); cell(r,t.manager);
+    editable(cell(r,t.client),t,'client','client'); editable(cell(r,t.name),t,'name','text'); editable(cell(r,t.manager),t,'manager','text');
     editable(cell(r,short(t.deadline)),t,'deadline','date');
     const a=document.createElement('div'), cb=document.createElement('input');
     cb.type='checkbox'; cb.className='chk'; cb.checked=!!t.asap; cb.setAttribute('aria-label','ASAP');
@@ -173,13 +219,17 @@ async function load(){
   }catch(e){ say('Nem sikerült betölteni az adatokat. Frissítsd az oldalt.'); }
 }
 
+const dd=mdField('','');
+dd.text.required=true;
+$('#dl-slot').replaceWith(dd.box);
+
 $('#form').addEventListener('submit',async e=>{
   e.preventDefault();
   const f=e.target, b=$('#go');
   const d={action:'add',client:f.client.value,name:f.name.value.trim(),manager:f.manager.value.trim(),
-    deadline:f.deadline.value,time:f.time.value,asap:f.asap.checked};
+    deadline:dd.get(),time:f.time.value,asap:f.asap.checked};
   b.disabled=true; b.textContent='…';
-  try{ await post(d); f.reset(); await load(); }
+  try{ await post(d); f.reset(); dd.clear(); await load(); }
   catch(err){ say('Nem sikerült elküldeni. Próbáld újra.'); }
   b.disabled=false; b.textContent='MEHET';
 });
