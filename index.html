@@ -36,17 +36,31 @@ button.go:disabled{opacity:.5;cursor:wait}
 .admin.on{display:flex}
 .st{color:#7d7d7d}
 .st b{color:#fff;font-weight:700;margin-left:8px}
-.search{flex:1 1 280px;max-width:440px;display:flex;align-items:center;gap:8px;border-radius:24px;box-shadow:inset 0 0 0 2px var(--line);padding:7px 16px}
+.search{flex:1 1 200px;max-width:320px;display:flex;align-items:center;gap:8px;border-radius:24px;box-shadow:inset 0 0 0 2px var(--line);padding:7px 16px}
 .search input{flex:1;min-width:0;background:transparent;border:0;color:#fff;font:inherit;padding:0;outline:0}
 .search input::placeholder{color:#7d7d7d}
 .search button{background:none;border:0;color:#fff;padding:0;display:flex;cursor:pointer}
+.wl{display:flex;align-items:center;flex-wrap:wrap;gap:8px 22px;flex:none}
+#wl{display:flex;gap:22px}
+.d{color:#e6e6e6;font-weight:700;white-space:nowrap}
+.d .g{color:#3ecf70}.d .y{color:#f2e04a}.d .r{color:#e04b4b}
 .wrap{overflow-x:auto}
+.table.adm{padding-right:44px}
+.rowswrap{position:relative}
+.dels{position:absolute;left:100%;top:0;margin-left:10px;width:30px}
+.del{position:absolute;left:0;width:30px;display:flex;align-items:center;justify-content:center;background:none;border:0;padding:0;color:#d64545;cursor:pointer}
+.del:hover{color:#ff6b6b}
+.pop{position:fixed;z-index:50;background:#d9d9d9;color:#2b2b2b;border-radius:28px;padding:22px 28px;box-shadow:0 8px 30px rgba(0,0,0,.35);font-weight:800;font-size:19px;width:max-content;max-width:calc(100vw - 24px)}
+.pop .ask{margin:0 0 18px}
+.pop .btns{display:flex;justify-content:space-between;gap:36px}
+.pop button{display:flex;align-items:center;gap:8px;background:none;border:0;font:inherit;color:inherit;padding:0;cursor:pointer}
+.pop .yes svg{color:#d64545}.pop .no svg{color:#2fc462}
 .table{min-width:1000px}
 .head,.row{display:grid;grid-template-columns:var(--cols);align-items:stretch}
 .head{box-shadow:inset 0 0 0 2px var(--line);border-radius:22px;font-weight:700;margin-bottom:4px}
 .head>*,.row>*{padding:8px 14px;display:flex;align-items:center;min-height:36px;min-width:0}
 .head>*{padding-top:10px;padding-bottom:10px}
-.rows{background:#d9d9d9;min-height:420px;border-radius:22px;overflow:hidden;color:var(--text);display:flex;flex-direction:column;gap:3px}
+.rows{position:relative;background:#d9d9d9;min-height:420px;border-radius:22px;overflow:hidden;color:var(--text);display:flex;flex-direction:column;gap:3px}
 .row{flex:none}
 .row>*:nth-child(odd){background:rgba(0,0,0,.07)}
 .head>*:nth-child(5),.row>*:nth-child(5){justify-content:center;padding-left:0;padding-right:0}
@@ -108,12 +122,13 @@ button.go:disabled{opacity:.5;cursor:wait}
    <input id="q-c" type="text" placeholder="Kliens keresés" aria-label="Keresés a kliensek között" autocomplete="off">
    <button type="button" id="qx-c" aria-label="Keresés"></button>
   </div>
+  <div class="wl"><span class="st">Workload /day:</span><span id="wl"></span></div>
  </div>
 </div>
 
 <div class="wrap"><div class="table">
  <div class="head"><div>Kliens</div><div>Projekt elnevezése</div><div>CM</div><div>Határidő</div><div>ASAP</div><div>Óra</div><div>Státusz</div></div>
- <div class="rows" id="rows"></div>
+ <div class="rowswrap"><div class="rows" id="rows"></div><div class="dels" id="dels"></div></div>
 </div></div>
 </main>
 
@@ -213,6 +228,52 @@ const XIC='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="c
 const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const qs={p:'',c:''};
 
+const WL=['M','T','W','T','F'];
+function weekDays(){
+  const n=new Date(), d=new Date(n.getFullYear(),n.getMonth(),n.getDate()), wd=d.getDay();
+  d.setDate(d.getDate()+(wd===0?1:wd===6?2:1-wd));
+  return [0,1,2,3,4].map(i=>{const x=new Date(d); x.setDate(d.getDate()+i); return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate());});
+}
+
+const DELX='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M4 4l16 16M20 4L4 20"/></svg>';
+const CHK='<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="M3 13l6 6L21 6"/></svg>';
+const NOX='<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="M4 4l16 16M20 4L4 20"/></svg>';
+let rowEls=[], pop=null;
+
+function placeDels(){
+  const box=$('#dels'); box.textContent='';
+  if(!ADMIN) return;
+  for(const [t,r] of rowEls){
+    const b=document.createElement('button'); b.type='button'; b.className='del';
+    b.title='Törlés'; b.setAttribute('aria-label','Törlés'); b.innerHTML=DELX;
+    b.style.top=r.offsetTop+'px'; b.style.height=r.offsetHeight+'px';
+    b.addEventListener('click',()=>askDelete(t,b));
+    box.append(b);
+  }
+}
+function closePop(){ if(pop){ pop.remove(); pop=null; } }
+function askDelete(t,btn){
+  closePop();
+  pop=document.createElement('div'); pop.className='pop'; pop.setAttribute('role','dialog');
+  pop.innerHTML='<p class="ask">Biztosan törölni akarod?</p><div class="btns"><button type="button" class="yes">'+CHK+'Igen</button><button type="button" class="no">'+NOX+'Nem</button></div>';
+  document.body.append(pop);
+  const r=btn.getBoundingClientRect(), w=pop.offsetWidth, h=pop.offsetHeight;
+  pop.style.left=Math.max(12,Math.min(r.left,innerWidth-w-12))+'px';
+  pop.style.top=(r.top-h-8<8?r.bottom+8:r.top-h-8)+'px';
+  pop.querySelector('.no').addEventListener('click',closePop);
+  pop.querySelector('.yes').addEventListener('click',()=>{ closePop(); del(t); });
+  pop.querySelector('.no').focus();
+}
+async function del(t){
+  state.tasks=state.tasks.filter(x=>x.id!==t.id); render();
+  try{ await post({action:'delete',id:t.id,code:ADMIN}); say(''); }
+  catch(e){ say(e.message==='wrong code'?'Hibás admin kód, a törlés nem sikerült.':'Nem sikerült törölni. Próbáld újra.'); load(); }
+}
+document.addEventListener('mousedown',e=>{ if(pop&&!pop.contains(e.target)&&!e.target.closest('.del')) closePop(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closePop(); });
+window.addEventListener('resize',placeDels);
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(placeDels);
+
 function stats(){
   const n=new Date(), ym=n.getFullYear()+'-'+pad(n.getMonth()+1);
   const m=state.tasks.filter(t=>(t.deadline||'').startsWith(ym));
@@ -220,6 +281,10 @@ function stats(){
   const cnt={}; for(const t of m) cnt[t.client]=(cnt[t.client]||0)+1;
   const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0];
   $('#s-top').textContent=top?top[0]+' ('+top[1]+')':'–';
+  $('#wl').innerHTML=weekDays().map((d,i)=>{
+    const n=state.tasks.filter(t=>t.deadline===d&&t.status!=='Kész').length;
+    return '<span class="d">'+WL[i]+': <b class="'+(n>15?'r':n>10?'y':'g')+'">'+n+'</b></span>';
+  }).join('');
   $('#s-left').textContent=state.tasks.filter(t=>t.status!=='Kész').length;
 }
 function setQ(k,v){
@@ -230,10 +295,10 @@ function setQ(k,v){
 
 function render(){
   stats();
-  const box=$('#rows'); box.textContent='';
+  const box=$('#rows'); box.textContent=''; rowEls=[];
   const np=norm(qs.p.trim()), nc=norm(qs.c.trim());
   const list=sorted().filter(t=>(!np||norm(t.name).includes(np))&&(!nc||norm(t.client).includes(nc)));
-  if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent=state.tasks.length?'Nincs találat.':'Még nincs projekt. Add hozzá fent.'; box.append(e); return; }
+  if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent=state.tasks.length?'Nincs találat.':'Még nincs projekt. Add hozzá fent.'; box.append(e); placeDels(); return; }
   for(const t of list){
     const r=document.createElement('div'); r.className='row';
     if(t.status==='Kész') r.classList.add('done');
@@ -254,8 +319,9 @@ function render(){
       for(const o of STATUSES){ const op=new Option(o,o); op.selected=o===t.status; sel.add(op); }
       sel.addEventListener('change',()=>update(t,{status:sel.value})); s.append(sel);
     } else s.textContent=t.status;
-    box.append(r);
+    box.append(r); rowEls.push([t,r]);
   }
+  placeDels();
 }
 
 function fillClients(){
@@ -289,6 +355,7 @@ $('#form').addEventListener('submit',async e=>{
 
 if(ADMIN){
   $('#admin').classList.add('on');
+  document.querySelector('.table').classList.add('adm');
   for(const k of ['p','c']){
     $('#qx-'+k).innerHTML=MAG;
     $('#q-'+k).addEventListener('input',e=>setQ(k,e.target.value));
