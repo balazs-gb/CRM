@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/x-icon" href="DP.svg">
 <style>
 :root{--bg:#2e2e2e;--line:#e6e6e6;--text:#2b2b2b;
 --cols:minmax(130px,1.2fr) minmax(200px,2.6fr) minmax(110px,1.1fr) 116px 70px 110px minmax(160px,1.4fr);}
@@ -19,11 +20,15 @@ label.t{display:block;font-weight:700;margin-bottom:10px}
 .fields{flex:1;display:flex;border-radius:24px;box-shadow:inset 0 0 0 2px var(--line);overflow:hidden}
 .fields>*{background:transparent;color:#fff;border:0;border-right:2px solid var(--line);padding:11px 16px;font:inherit;min-width:0;color-scheme:dark}
 .fields>*:last-child{border-right:0}
-.fields select{flex:1.2}.fields input[name=name]{flex:2.6}.fields input[name=manager]{flex:1.3}
+.fields input[name=client]{flex:1.2}.fields input[name=name]{flex:2.6}.fields input[name=manager]{flex:1.3}
 .fields .md{flex:1}.fields input[type=time]{flex:.8}
 .fields ::placeholder{color:#7d7d7d}
 .fields select:invalid{color:#7d7d7d}
 .fields option{color:#000}
+.cblist{position:fixed;z-index:60;background:#d9d9d9;color:#2b2b2b;border-radius:18px;padding:6px;box-shadow:0 8px 30px rgba(0,0,0,.35);overflow-y:auto;font:500 17px 'Outfit',system-ui,sans-serif}
+.cbo,.cbno{padding:9px 14px;border-radius:12px;cursor:pointer}
+.cbo.on{background:rgba(0,0,0,.12)}
+.cbno{color:#6a6a6a;cursor:default}
 .asapf{display:flex;align-items:center;gap:10px;white-space:nowrap}
 button.go{background:#e0e0e0;color:#2b2b2b;border:0;border-radius:24px;padding:0 64px;font:inherit;font-weight:800;font-size:22px;cursor:pointer}
 button.go:disabled{opacity:.5;cursor:wait}
@@ -96,7 +101,7 @@ button.go:disabled{opacity:.5;cursor:wait}
 <label class="t" for="f-client">Új projekt:</label>
 <form class="add" id="form">
  <div class="fields">
-  <select name="client" id="f-client" required aria-label="Kliens"><option value="" disabled selected>Kliens</option></select>
+  <input name="client" id="f-client" placeholder="Kliens" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-label="Kliens">
   <input name="name" placeholder="Projekt elnevezése" required aria-label="Projekt elnevezése">
   <input name="manager" placeholder="Content manager" required aria-label="Content manager">
   <span id="dl-slot"></span>
@@ -304,8 +309,10 @@ function render(){
     if(t.status==='Kész') r.classList.add('done');
     else if(t.asap) r.classList.add('asap');
     else if(t.deadline){
-      const k=Math.max(0,Math.min(9,daysUntil(t.deadline)));
-      r.style.background=`hsl(${Math.round(12+113*k/9)} 52% 66%)`;
+      const n=daysUntil(t.deadline);
+      // red (older than yesterday) / orange (yesterday) / yellow (today) / yellow-green (tomorrow) / light green (2-4 days) / apple green (5+ days)
+      const hue=n<=-2?12:n===-1?28:n===0?56:n===1?76:n<=4?96:118;
+      r.style.background=`hsl(${hue} 52% 66%)`;
     }
     editable(cell(r,t.client),t,'client','client'); editable(cell(r,t.name),t,'name','text'); editable(cell(r,t.manager),t,'manager','text');
     editable(cell(r,short(t.deadline)),t,'deadline','date');
@@ -324,12 +331,64 @@ function render(){
   placeDels();
 }
 
-function fillClients(){
-  const sel=$('#f-client'), cur=sel.value;
-  sel.length=1;
-  for(const c of state.clients) sel.add(new Option(c,c));
-  sel.value=state.clients.includes(cur)?cur:'';
+/* Kliens: type-to-filter dropdown in the new-project form */
+const cbIn=$('#f-client');
+let cbList=null, cbActive=-1, cbItems=[];
+const canon=v=>state.clients.find(c=>norm(c)===norm((v||'').trim()))||'';
+function cbValidate(){
+  const v=cbIn.value.trim();
+  cbIn.setCustomValidity(v&&!canon(v)?'Válassz egy klienst a listából.':'');
 }
+function cbMatches(){
+  const n=norm(cbIn.value.trim()), all=state.clients;
+  if(!n) return all;
+  return [...all.filter(c=>norm(c).startsWith(n)),...all.filter(c=>!norm(c).startsWith(n)&&norm(c).includes(n))];
+}
+function cbPlace(){
+  if(!cbList) return;
+  const r=cbIn.getBoundingClientRect(), w=Math.max(r.width,260);
+  const below=innerHeight-r.bottom-14, above=r.top-14;
+  cbList.style.minWidth=w+'px';
+  cbList.style.left=Math.max(8,Math.min(r.left,innerWidth-w-8))+'px';
+  if(below<180&&above>below){ cbList.style.top=''; cbList.style.bottom=(innerHeight-r.top+6)+'px'; cbList.style.maxHeight=Math.min(280,above)+'px'; }
+  else{ cbList.style.bottom=''; cbList.style.top=(r.bottom+6)+'px'; cbList.style.maxHeight=Math.min(280,below)+'px'; }
+}
+function cbSet(i,scroll){
+  cbActive=i;
+  const os=cbList?[...cbList.querySelectorAll('.cbo')]:[];
+  os.forEach((o,k)=>o.classList.toggle('on',k===i));
+  if(scroll&&os[i]) os[i].scrollIntoView({block:'nearest'});
+}
+function cbPick(c){ cbIn.value=c; cbValidate(); cbClose(); }
+function cbClose(){ if(cbList){ cbList.remove(); cbList=null; } cbActive=-1; }
+function cbOpen(){
+  if(!cbList){ cbList=document.createElement('div'); cbList.className='cblist'; cbList.setAttribute('role','listbox'); document.body.append(cbList); }
+  cbItems=cbMatches(); cbActive=-1; cbList.textContent='';
+  if(!cbItems.length){ const e=document.createElement('div'); e.className='cbno'; e.textContent=state.clients.length?'Nincs találat':'Betöltés…'; cbList.append(e); }
+  cbItems.forEach((c,i)=>{
+    const o=document.createElement('div'); o.className='cbo'; o.setAttribute('role','option'); o.textContent=c;
+    o.addEventListener('mousedown',e=>{ e.preventDefault(); cbPick(c); });
+    o.addEventListener('mousemove',()=>{ if(cbActive!==i) cbSet(i,false); });
+    cbList.append(o);
+  });
+  cbPlace();
+}
+cbIn.addEventListener('focus',cbOpen);
+cbIn.addEventListener('click',()=>{ if(!cbList) cbOpen(); });
+cbIn.addEventListener('input',()=>{ cbValidate(); cbOpen(); });
+cbIn.addEventListener('keydown',e=>{
+  if(e.key==='ArrowDown'){ e.preventDefault(); if(!cbList) cbOpen(); cbSet(Math.min(cbItems.length-1,cbActive+1),true); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); if(cbList) cbSet(Math.max(0,cbActive-1),true); }
+  else if(e.key==='Enter'){
+    if(cbList&&cbItems.length&&(cbActive>=0||(cbIn.value.trim()&&!canon(cbIn.value)))){ e.preventDefault(); cbPick(cbItems[Math.max(0,cbActive)]); }
+  }
+  else if(e.key==='Escape') cbClose();
+});
+cbIn.addEventListener('blur',()=>{ const c=canon(cbIn.value); if(c) cbIn.value=c; cbValidate(); cbClose(); });
+window.addEventListener('resize',cbPlace);
+window.addEventListener('scroll',cbPlace,true);
+
+function fillClients(){ cbValidate(); if(cbList) cbOpen(); }
 
 async function load(){
   try{
@@ -345,10 +404,10 @@ $('#dl-slot').replaceWith(dd.box);
 $('#form').addEventListener('submit',async e=>{
   e.preventDefault();
   const f=e.target, b=$('#go');
-  const d={action:'add',client:f.client.value,name:f.name.value.trim(),manager:f.manager.value.trim(),
+  const d={action:'add',client:canon(f.client.value),name:f.name.value.trim(),manager:f.manager.value.trim(),
     deadline:dd.get(),time:f.time.value,asap:f.asap.checked};
   b.disabled=true; b.textContent='…';
-  try{ await post(d); f.reset(); dd.clear(); await load(); }
+  try{ await post(d); f.reset(); dd.clear(); cbValidate(); await load(); }
   catch(err){ say('Nem sikerült elküldeni. Próbáld újra.'); }
   b.disabled=false; b.textContent='MEHET';
 });
@@ -364,7 +423,7 @@ if(ADMIN){
 }
 
 load();
-setInterval(()=>{ if(!document.hidden && !document.querySelector('#rows input')) load(); },60000);
+setInterval(()=>{ if(!document.hidden && !document.querySelector('#rows input') && !cbList) load(); },60000);
 </script>
 </body>
 </html>
