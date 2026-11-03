@@ -48,6 +48,7 @@ button.go:disabled{opacity:.5;cursor:wait}
 .wl{display:flex;align-items:center;flex-wrap:wrap;gap:8px 22px;flex:none}
 #wl{display:flex;gap:22px}
 .d{color:#e6e6e6;font-weight:700;white-space:nowrap}
+.d .tot{color:#7d7d7d;font-weight:500;margin-left:6px}
 .d .g{color:#3ecf70}.d .y{color:#f2e04a}.d .r{color:#e04b4b}
 .wrap{overflow-x:auto}
 .table.adm{padding-right:44px}
@@ -287,8 +288,9 @@ function stats(){
   const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0];
   $('#s-top').textContent=top?top[0]+' ('+top[1]+')':'–';
   $('#wl').innerHTML=weekDays().map((d,i)=>{
-    const n=state.tasks.filter(t=>t.deadline===d&&t.status!=='Kész').length;
-    return '<span class="d">'+WL[i]+': <b class="'+(n>15?'r':n>10?'y':'g')+'">'+n+'</b></span>';
+    const day=state.tasks.filter(t=>t.deadline===d);
+    const n=day.filter(t=>t.status!=='Kész').length;
+    return '<span class="d">'+WL[i]+': <b class="'+(n>15?'r':n>10?'y':'g')+'">'+n+'</b><span class="tot">('+day.length+')</span></span>';
   }).join('');
   $('#s-left').textContent=state.tasks.filter(t=>t.status!=='Kész').length;
 }
