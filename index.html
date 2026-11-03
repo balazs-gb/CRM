@@ -30,7 +30,9 @@ button.go:disabled{opacity:.5;cursor:wait}
 .chk{appearance:none;-webkit-appearance:none;width:24px;height:24px;margin:0;border:2px solid currentColor;background:none;cursor:pointer;flex:none;border-radius:2px}
 .chk:checked{background:linear-gradient(to top right,transparent 45%,currentColor 45% 55%,transparent 55%),linear-gradient(to bottom right,transparent 45%,currentColor 45% 55%,transparent 55%)}
 #msg{min-height:24px;margin:-36px 0 24px;color:#f0a38c}
-.admin{display:none;align-items:center;flex-wrap:wrap;gap:16px 44px;margin:0 0 48px;padding:0 16px}
+.admin{display:none;flex-direction:column;gap:32px;margin:0 0 48px;padding:0 16px}
+.stats,.searches{display:flex;align-items:center;flex-wrap:wrap;gap:16px 44px}
+.searches{gap:16px 32px}
 .admin.on{display:flex}
 .st{color:#7d7d7d}
 .st b{color:#fff;font-weight:700;margin-left:8px}
@@ -92,11 +94,20 @@ button.go:disabled{opacity:.5;cursor:wait}
 <div id="msg" role="status"></div>
 
 <div class="admin" id="admin">
- <span class="st">Összes projekt a hónapban: <b id="s-month">0</b></span>
- <span class="st">Hátra van még: <b id="s-left">0</b></span>
- <div class="search">
-  <input id="q" type="text" placeholder="Keresés" aria-label="Keresés a projektek elnevezésében" autocomplete="off">
-  <button type="button" id="qx" aria-label="Keresés"></button>
+ <div class="stats">
+  <span class="st">Összes projekt a hónapban: <b id="s-month">0</b></span>
+  <span class="st">Hátra van még: <b id="s-left">0</b></span>
+  <span class="st">Top kliens a hónapban: <b id="s-top">–</b></span>
+ </div>
+ <div class="searches">
+  <div class="search">
+   <input id="q-p" type="text" placeholder="Projekt keresés" aria-label="Keresés a projektek elnevezésében" autocomplete="off">
+   <button type="button" id="qx-p" aria-label="Keresés"></button>
+  </div>
+  <div class="search">
+   <input id="q-c" type="text" placeholder="Kliens keresés" aria-label="Keresés a kliensek között" autocomplete="off">
+   <button type="button" id="qx-c" aria-label="Keresés"></button>
+  </div>
  </div>
 </div>
 
@@ -200,15 +211,19 @@ function editable(c,t,field,type){
 const MAG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>';
 const XIC='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
 const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-let q='';
+const qs={p:'',c:''};
 
 function stats(){
   const n=new Date(), ym=n.getFullYear()+'-'+pad(n.getMonth()+1);
-  $('#s-month').textContent=state.tasks.filter(t=>(t.deadline||'').startsWith(ym)).length;
+  const m=state.tasks.filter(t=>(t.deadline||'').startsWith(ym));
+  $('#s-month').textContent=m.length;
+  const cnt={}; for(const t of m) cnt[t.client]=(cnt[t.client]||0)+1;
+  const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0];
+  $('#s-top').textContent=top?top[0]+' ('+top[1]+')':'–';
   $('#s-left').textContent=state.tasks.filter(t=>t.status!=='Kész').length;
 }
-function setQ(v){
-  q=v; const b=$('#qx');
+function setQ(k,v){
+  qs[k]=v; const b=$('#qx-'+k);
   b.innerHTML=v?XIC:MAG; b.setAttribute('aria-label',v?'Keresés törlése':'Keresés');
   render();
 }
@@ -216,8 +231,8 @@ function setQ(v){
 function render(){
   stats();
   const box=$('#rows'); box.textContent='';
-  const nd=norm(q.trim());
-  const list=sorted().filter(t=>!nd||norm(t.name).includes(nd));
+  const np=norm(qs.p.trim()), nc=norm(qs.c.trim());
+  const list=sorted().filter(t=>(!np||norm(t.name).includes(np))&&(!nc||norm(t.client).includes(nc)));
   if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent=state.tasks.length?'Nincs találat.':'Még nincs projekt. Add hozzá fent.'; box.append(e); return; }
   for(const t of list){
     const r=document.createElement('div'); r.className='row';
@@ -274,9 +289,11 @@ $('#form').addEventListener('submit',async e=>{
 
 if(ADMIN){
   $('#admin').classList.add('on');
-  $('#qx').innerHTML=MAG;
-  $('#q').addEventListener('input',e=>setQ(e.target.value));
-  $('#qx').addEventListener('click',()=>{ $('#q').value=''; setQ(''); $('#q').focus(); });
+  for(const k of ['p','c']){
+    $('#qx-'+k).innerHTML=MAG;
+    $('#q-'+k).addEventListener('input',e=>setQ(k,e.target.value));
+    $('#qx-'+k).addEventListener('click',()=>{ $('#q-'+k).value=''; setQ(k,''); $('#q-'+k).focus(); });
+  }
 }
 
 load();
