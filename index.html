@@ -49,6 +49,7 @@ button.go:disabled{opacity:.5;cursor:wait}
 .wl{display:flex;align-items:center;flex-wrap:wrap;gap:8px 22px;flex:none}
 #wl{display:flex;gap:22px}
 .d{color:#e6e6e6;font-weight:700;white-space:nowrap}
+.d .today{display:inline-flex;align-items:center;justify-content:center;width:1.7em;height:1.7em;border:2px solid #fff;border-radius:50%;line-height:1;margin-right:1px}
 .d .tot{color:#7d7d7d;font-weight:500;margin-left:6px}
 .d .g{color:#3ecf70}.d .y{color:#f2e04a}.d .r{color:#e04b4b}
 .wrap{overflow-x:auto}
@@ -288,10 +289,11 @@ function stats(){
   const cnt={}; for(const t of m) cnt[t.client]=(cnt[t.client]||0)+1;
   const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0];
   $('#s-top').textContent=top?top[0]+' ('+top[1]+')':'–';
+  const td=new Date(), today=td.getFullYear()+'-'+pad(td.getMonth()+1)+'-'+pad(td.getDate());
   $('#wl').innerHTML=weekDays().map((d,i)=>{
     const day=state.tasks.filter(t=>t.deadline===d);
     const n=day.filter(t=>t.status!=='Kész').length;
-    return '<span class="d">'+WL[i]+': <b class="'+(n>15?'r':n>10?'y':'g')+'">'+n+'</b><span class="tot">('+day.length+')</span></span>';
+    return '<span class="d">'+(d===today?'<span class="today">'+WL[i]+'</span>':WL[i])+': <b class="'+(n>15?'r':n>10?'y':'g')+'">'+n+'</b><span class="tot">('+day.length+')</span></span>';
   }).join('');
   $('#s-left').textContent=state.tasks.filter(t=>t.status!=='Kész').length;
 }
