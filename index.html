@@ -46,6 +46,11 @@ button.go:disabled{opacity:.5;cursor:wait}
 .search input{flex:1;min-width:0;background:transparent;border:0;color:#fff;font:inherit;padding:0;outline:0}
 .search input::placeholder{color:#7d7d7d}
 .search button{background:none;border:0;color:#fff;padding:0;display:flex;cursor:pointer}
+.live{margin-left:auto;display:flex;align-items:center;gap:10px;color:#f2e04a;font-weight:700}
+.live[hidden]{display:none}
+.live i{width:10px;height:10px;border-radius:50%;background:#f2e04a;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.live i{animation:none}}
 .wl{display:flex;align-items:center;flex-wrap:wrap;gap:8px 22px;flex:none}
 #wl{display:flex;gap:22px}
 .d{color:#e6e6e6;font-weight:700;white-space:nowrap}
@@ -120,6 +125,7 @@ button.go:disabled{opacity:.5;cursor:wait}
   <span class="st">Összes projekt a hónapban: <b id="s-month">0</b></span>
   <span class="st">Hátra van még: <b id="s-left">0</b></span>
   <span class="st">Top kliens a hónapban: <b id="s-top">–</b></span>
+  <span class="live" id="live" hidden role="status"><i></i><span></span></span>
  </div>
  <div class="searches">
   <div class="search">
@@ -215,10 +221,10 @@ function editable(c,t,field,type){
     }else{
       el=document.createElement('input'); el.type=type; el.value=t[field]||''; get=()=>el.value; c.append(el);
     }
-    el.focus();
+    el.focus(); setPresence('edit');
     let done=false;
     const fin=ok=>{
-      if(done) return; done=true;
+      if(done) return; done=true; setPresence('');
       const v=get();
       if(ok && (v||field==='time'||field==='asap') && v!==(t[field]||'')) update(t,{[field]:v}); else render();
     };
@@ -395,10 +401,10 @@ window.addEventListener('scroll',cbPlace,true);
 
 function fillClients(){ cbValidate(); if(cbList) cbOpen(); }
 
-async function load(){
+async function load(poll){
   try{
     const r=await fetch(API); state=await r.json();
-    fillClients(); render(); say('');
+    fillClients(); render(); say(''); checkNew(!!poll);
   }catch(e){ say('Nem sikerült betölteni az adatokat. Frissítsd az oldalt.'); }
 }
 
@@ -412,7 +418,7 @@ $('#form').addEventListener('submit',async e=>{
   const d={action:'add',client:canon(f.client.value),name:f.name.value.trim(),manager:f.manager.value.trim(),
     deadline:dd.get(),time:f.time.value,asap:f.asap.checked};
   b.disabled=true; b.textContent='…';
-  try{ await post(d); f.reset(); dd.clear(); cbValidate(); await load(); }
+  try{ await post(d); f.reset(); dd.clear(); cbValidate(); setPresence(''); await load(); }
   catch(err){ say('Nem sikerült elküldeni. Próbáld újra.'); }
   b.disabled=false; b.textContent='MEHET';
 });
@@ -427,8 +433,84 @@ if(ADMIN){
   document.querySelector('.table').classList.add('adm');
 }
 
+/* ---------- someone else is on the page (presence) ---------- */
+const SID=Math.random().toString(36).slice(2)+Date.now().toString(36);
+let pres='', presTimer=null, lastAct=Date.now();
+['keydown','pointerdown','input'].forEach(ev=>document.addEventListener(ev,()=>{ lastAct=Date.now(); },{passive:true,capture:true}));
+function beat(){
+  if(document.hidden||Date.now()-lastAct>120000) return;
+  fetch(API,{method:'POST',body:JSON.stringify({action:'presence',sid:SID,kind:pres})}).catch(()=>{});
+}
+function setPresence(kind){
+  if(ADMIN||kind===pres) return;
+  pres=kind; clearInterval(presTimer); beat();
+  if(kind) presTimer=setInterval(beat,15000);
+}
+const formEl=$('#form');
+formEl.addEventListener('focusin',()=>setPresence('add'));
+formEl.addEventListener('focusout',e=>{ if(!formEl.contains(e.relatedTarget)) setPresence(''); });
+
+function showLive(a,e){
+  const parts=[];
+  if(a) parts.push(a>1?a+' ember éppen új projektet ad hozzá':'Valaki éppen új projektet ad hozzá');
+  if(e) parts.push(e>1?e+' ember éppen projektet szerkeszt':'Valaki éppen szerkeszt egy projektet');
+  const el=$('#live'); el.hidden=!parts.length; el.lastChild.textContent=parts.join(' · ');
+}
+async function pollPresence(){
+  if(!ADMIN||document.hidden) return;
+  try{ const r=await fetch(API+'?presence=1'); const j=await r.json(); showLive(j.add|0,j.edit|0); }catch(e){}
+}
+
+/* ---------- new-task alert: tab title counter + soft sound (admin) ---------- */
+const BASE=document.title;
+let seen=null, unseen=0, ac=null;
+const alerted=new Set();
+try{ const a=JSON.parse(localStorage.getItem('dp_seen')); if(Array.isArray(a)) seen=new Set(a); }catch(e){}
+const setTitle=()=>{ document.title=(unseen?'('+unseen+') ':'')+BASE; };
+const watching=()=>!document.hidden&&document.hasFocus();
+function markSeen(){
+  seen=new Set(state.tasks.map(t=>t.id));
+  try{ localStorage.setItem('dp_seen',JSON.stringify([...seen])); }catch(e){}
+  unseen=0; setTitle();
+}
+function unlockAudio(){
+  try{
+    const C=window.AudioContext||window.webkitAudioContext;
+    if(!ac&&C) ac=new C();
+    if(ac&&ac.state==='suspended') ac.resume();
+  }catch(e){}
+}
+function ding(){
+  if(!ac||ac.state!=='running') return;
+  const t0=ac.currentTime;
+  [[784,0],[1175,.14]].forEach(([f,dt])=>{
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.type='sine'; o.frequency.value=f;
+    g.gain.setValueAtTime(.0001,t0+dt);
+    g.gain.exponentialRampToValueAtTime(.12,t0+dt+.02);
+    g.gain.exponentialRampToValueAtTime(.0001,t0+dt+.45);
+    o.connect(g); g.connect(ac.destination); o.start(t0+dt); o.stop(t0+dt+.5);
+  });
+}
+function checkNew(fromPoll){
+  if(!ADMIN) return;
+  if(seen===null){ markSeen(); return; }
+  const fresh=state.tasks.filter(t=>!seen.has(t.id));
+  if(!fresh.length){ if(unseen){ unseen=0; setTitle(); } return; }
+  const added=fresh.filter(t=>!alerted.has(t.id));
+  added.forEach(t=>alerted.add(t.id));
+  if(watching()) markSeen(); else { unseen=fresh.length; setTitle(); }
+  if(added.length&&fromPoll) ding();
+}
+if(ADMIN){
+  ['pointerdown','keydown'].forEach(ev=>document.addEventListener(ev,unlockAudio,{passive:true}));
+  document.addEventListener('visibilitychange',()=>{ if(watching()&&state.tasks.length) markSeen(); });
+  window.addEventListener('focus',()=>{ if(!document.hidden&&state.tasks.length) markSeen(); });
+  setInterval(pollPresence,8000);
+}
+
 load();
-setInterval(()=>{ if(!document.hidden && !document.querySelector('#rows input') && !cbList) load(); },60000);
+setInterval(()=>{ if((ADMIN||!document.hidden) && !document.querySelector('#rows input') && !cbList) load(true); },ADMIN?30000:60000);
 </script>
 </body>
 </html>
