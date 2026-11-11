@@ -15,7 +15,7 @@
 body{margin:0;background:var(--bg);color:#fff;font-family:'Outfit',system-ui,sans-serif;font-size:17px;font-weight:500}
 main{max-width:1280px;margin:0 auto;padding:48px 24px 80px}
 h1{text-align:center;font-weight:800;font-size:40px;margin:0 0 56px}
-label.t{display:block;font-weight:700;margin-bottom:10px}
+.t{display:block;font-weight:700;margin-bottom:10px}
 .add{display:flex;gap:32px;align-items:stretch;margin-bottom:56px}
 .fields{flex:1;display:flex;border-radius:24px;box-shadow:inset 0 0 0 2px var(--line);overflow:hidden}
 .fields>*{background:transparent;color:#fff;border:0;border-right:2px solid var(--line);padding:11px 16px;font:inherit;min-width:0;color-scheme:dark}
@@ -51,6 +51,23 @@ button.go:disabled{opacity:.5;cursor:wait}
 .live i{width:10px;height:10px;border-radius:50%;background:#f2e04a;animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.live i{animation:none}}
+.lv-g{--c:#40CB69}.lv-y{--c:#FFF200}.lv-r{--c:#CB4040}
+.avcal{display:flex;align-items:center;justify-content:space-between;gap:28px;overflow-x:auto;border-radius:28px;box-shadow:inset 0 0 0 2px var(--line);padding:14px 32px;font-size:16px;font-weight:500}
+.avcal span{flex:none;white-space:nowrap;color:var(--c)}
+.avrow{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px 24px;margin:22px 0 40px;padding:0 4px}
+.legend{display:flex;align-items:center;flex-wrap:wrap;gap:10px 26px;color:#7d7d7d;font-size:16px}
+.legend span{display:flex;align-items:center;gap:10px}
+.legend i{width:26px;height:26px;border-radius:50%;background:var(--c);flex:none}
+.avedit{display:none;align-items:center;gap:16px}
+.avedit.on{display:flex}
+.avpill{display:flex;align-items:center;width:190px;border-radius:24px;box-shadow:inset 0 0 0 2px var(--line);padding:9px 20px;color:#fff}
+.avpill ::placeholder{color:#7d7d7d}
+.swatch{width:40px;height:40px;border-radius:50%;border:0;background:var(--c);cursor:pointer;flex:none;padding:0}
+.go2{background:#e0e0e0;color:#2b2b2b;border:0;border-radius:24px;padding:0 30px;height:46px;font:inherit;font-weight:800;font-size:17px;cursor:pointer;white-space:nowrap}
+.go2:disabled{opacity:.5;cursor:wait}
+.colpop{position:fixed;z-index:50;display:flex;gap:14px;background:#d9d9d9;border-radius:28px;padding:14px 18px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.colpop button{width:38px;height:38px;border-radius:50%;border:0;background:var(--c);cursor:pointer;padding:0}
+.colpop button.on{outline:3px solid #2b2b2b;outline-offset:2px}
 .wl{display:flex;align-items:center;flex-wrap:wrap;gap:8px 22px;flex:none}
 #wl{display:flex;gap:22px}
 .d{color:#e6e6e6;font-weight:700;white-space:nowrap}
@@ -105,6 +122,21 @@ button.go:disabled{opacity:.5;cursor:wait}
 <body>
 <main>
 <h1>DESIGN PRIORITIES V3</h1>
+
+<div class="t">Balázs elérhetősége:</div>
+<div class="avcal" id="avcal" role="list"></div>
+<div class="avrow">
+ <div class="legend">
+  <span><i class="lv-r"></i>Armegeddon only</span>
+  <span><i class="lv-y"></i>Limitált kapacitás</span>
+  <span><i class="lv-g"></i>Mehet a menet</span>
+ </div>
+ <div class="avedit" id="avedit">
+  <span class="avpill" id="av-slot"></span>
+  <button type="button" class="swatch lv-r" id="av-col" aria-label="Szín választása" aria-haspopup="true" title="Piros"></button>
+  <button type="button" class="go2" id="av-go">MUNKANAP BEÁLLÍTÁSA</button>
+ </div>
+</div>
 
 <label class="t" for="f-client">Új projekt:</label>
 <form class="add" id="form">
@@ -310,7 +342,7 @@ function setQ(k,v){
 }
 
 function render(){
-  stats();
+  stats(); renderCal();
   const box=$('#rows'); box.textContent=''; rowEls=[];
   const np=norm(qs.p.trim()), nc=norm(qs.c.trim());
   const list=sorted().filter(t=>(!np||norm(t.name).includes(np))&&(!nc||norm(t.client).includes(nc)));
@@ -430,7 +462,64 @@ for(const k of ['p','c']){
 }
 if(ADMIN){
   $('#admin').classList.add('on');
+  $('#avedit').classList.add('on');
   document.querySelector('.table').classList.add('adm');
+}
+
+/* ---------- availability calendar ---------- */
+const DAYN=['Hétfő','Kedd','Szerda','Csüti','Péntek'];
+const LVC={green:'lv-g',yellow:'lv-y',red:'lv-r'};
+const LVT={green:'Mehet a menet',yellow:'Limitált kapacitás',red:'Armegeddon only'};
+function availDays(n){
+  const t=new Date(), d=new Date(t.getFullYear(),t.getMonth(),t.getDate()), out=[];
+  while(out.length<n){
+    const wd=d.getDay();
+    if(wd>=1&&wd<=5) out.push({iso:d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()),num:d.getDate(),name:DAYN[wd-1]});
+    d.setDate(d.getDate()+1);
+  }
+  return out;
+}
+function renderCal(){
+  const box=$('#avcal'), av=state.avail||{}; box.textContent='';
+  for(const x of availDays(12)){
+    const lv=av[x.iso] in LVC?av[x.iso]:'green', sp=document.createElement('span');
+    sp.className=LVC[lv]; sp.textContent=x.num+' '+x.name; sp.title=LVT[lv]; sp.setAttribute('role','listitem');
+    box.append(sp);
+  }
+}
+if(ADMIN){
+  const avd=mdField('','');
+  $('#av-slot').append(avd.box);
+  let avLevel='red', colpop=null;
+  const setLevel=l=>{ avLevel=l; const b=$('#av-col'); b.className='swatch '+LVC[l]; b.title=LVT[l]; };
+  const closeCol=()=>{ if(colpop){ colpop.remove(); colpop=null; } };
+  $('#av-col').addEventListener('click',()=>{
+    if(colpop){ closeCol(); return; }
+    colpop=document.createElement('div'); colpop.className='colpop'; colpop.setAttribute('role','menu');
+    for(const l of ['red','yellow','green']){
+      const b=document.createElement('button'); b.type='button'; b.className=LVC[l]+(l===avLevel?' on':'');
+      b.title=LVT[l]; b.setAttribute('aria-label',LVT[l]);
+      b.addEventListener('click',()=>{ setLevel(l); closeCol(); });
+      colpop.append(b);
+    }
+    document.body.append(colpop);
+    const r=$('#av-col').getBoundingClientRect(), w=colpop.offsetWidth;
+    colpop.style.left=Math.max(8,Math.min(r.left+r.width/2-w/2,innerWidth-w-8))+'px';
+    colpop.style.top=(r.bottom+8)+'px';
+  });
+  document.addEventListener('mousedown',e=>{ if(colpop&&!colpop.contains(e.target)&&e.target!==$('#av-col')) closeCol(); });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeCol(); });
+  $('#av-go').addEventListener('click',async()=>{
+    const date=avd.get(), b=$('#av-go');
+    if(!date){ say('Add meg a napot (hh.nn), amit be szeretnél állítani.'); avd.text.focus(); return; }
+    b.disabled=true;
+    state.avail=state.avail||{};
+    if(avLevel==='green') delete state.avail[date]; else state.avail[date]=avLevel;
+    renderCal();
+    try{ await post({action:'availability',date,level:avLevel,code:ADMIN}); say(''); avd.clear(); }
+    catch(e){ say(e.message==='wrong code'?'Hibás admin kód, a naptár nem változott.':'Nem sikerült menteni a naptárat. Próbáld újra.'); load(); }
+    b.disabled=false;
+  });
 }
 
 /* ---------- someone else is on the page (presence) ---------- */
