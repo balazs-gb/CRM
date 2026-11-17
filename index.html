@@ -380,6 +380,30 @@ function placeDels(){
   }
 }
 function closePop(){ if(pop){ pop.remove(); pop=null; } }
+function confirmPop(anchor,question,yesText,noText){
+  return new Promise(resolve=>{
+    closePop();
+    const el=document.createElement('div'); el.className='pop'; el.setAttribute('role','alertdialog');
+    el.innerHTML='<p class="ask"></p><div class="btns"><button type="button" class="yes">'+CHK+'<span></span></button><button type="button" class="no">'+NOX+'<span></span></button></div>';
+    el.querySelector('.ask').textContent=question;
+    el.querySelector('.yes span').textContent=yesText;
+    el.querySelector('.no span').textContent=noText;
+    document.body.append(el);
+    const r=anchor.getBoundingClientRect(), w=el.offsetWidth, h=el.offsetHeight;
+    el.style.left=Math.max(12,Math.min(r.right-w,innerWidth-w-12))+'px';
+    el.style.top=(r.top-h-8<8?r.bottom+8:r.top-h-8)+'px';
+    const done=v=>{
+      el.remove(); document.removeEventListener('mousedown',out,true); document.removeEventListener('keydown',key,true); resolve(v);
+    };
+    const out=e=>{ if(!el.contains(e.target)) done(false); };
+    const key=e=>{ if(e.key==='Escape') done(false); };
+    document.addEventListener('mousedown',out,true);
+    document.addEventListener('keydown',key,true);
+    el.querySelector('.yes').addEventListener('click',()=>done(true));
+    el.querySelector('.no').addEventListener('click',()=>done(false));
+    el.querySelector('.no').focus();
+  });
+}
 function askDelete(t,btn){
   closePop();
   pop=document.createElement('div'); pop.className='pop'; pop.setAttribute('role','dialog');
@@ -571,11 +595,20 @@ $('#dl-slot').replaceWith(dd.box);
 const tf=timeField('');
 $('#tm-slot').replaceWith(tf.box);
 
+let confirming=false;
 $('#form').addEventListener('submit',async e=>{
   e.preventDefault();
   const f=e.target, b=$('#go');
   const d={action:'add',client:canon(f.client.value),name:f.name.value.trim(),manager:f.manager.value.trim(),
     deadline:dd.get(),time:tf.get(),asap:f.asap.checked};
+  if(confirming) return;
+  if(!ADMIN&&(state.avail||{})[d.deadline]==='red'){
+    confirming=true; b.disabled=true;
+    const ok=await confirmPop(b,'Biztosan armageddon van?','IGEEEN','JA NEM');
+    confirming=false; b.disabled=false;
+    if(!ok) return;
+    d.urgent=true;
+  }
   b.disabled=true; b.textContent='…';
   try{ await post(d); f.reset(); dd.clear(); tf.clear(); cbValidate(); setPresence(''); await load(); }
   catch(err){ say('Nem sikerült elküldeni. Próbáld újra.'); }
