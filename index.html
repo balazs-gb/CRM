@@ -26,10 +26,13 @@ h1{text-align:left;font-weight:800;font-size:40px;margin:0;line-height:1.1;flex:
 .walledit::placeholder{color:rgba(255,255,255,.55)}
 .reacts{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:-16px 16px 0}
 .rlist{display:flex;gap:6px;background:#3b3b3b;border-radius:18px;padding:5px 12px;font-size:20px;line-height:1}
-.rlist[hidden],.rclr[hidden],.wallsave[hidden]{display:none}
+.rlist[hidden],.rclr[hidden],.wallsave[hidden],.walldel[hidden]{display:none}
 .rclr{background:none;border:0;color:var(--muted);cursor:pointer;padding:4px;display:flex}
 .rclr:hover{color:#fff}
-.wallsave{margin-right:auto;background:#e0e0e0;color:#2b2b2b;border:0;border-radius:18px;padding:6px 16px;font:inherit;font-weight:800;font-size:14px;cursor:pointer}
+.wallbtns{margin-right:auto;display:flex;gap:8px}
+.walldel{background:#3b3b3b;color:#e0e0e0}
+.wallsave,.walldel{border:0;border-radius:18px;padding:6px 16px;font:inherit;font-weight:800;font-size:14px;cursor:pointer}
+.wallsave{background:#e0e0e0;color:#2b2b2b;border:0;border-radius:18px;padding:6px 16px;font:inherit;font-weight:800;font-size:14px;cursor:pointer}
 .rwrap{position:relative}
 .rsmile{width:34px;height:34px;border-radius:50%;border:0;background:#4a4a4a;color:#8a8a8a;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .rsmile:hover{color:#d0d0d0}
@@ -174,7 +177,7 @@ button.go:disabled{opacity:.5;cursor:wait}
   <div class="walllab">Üzenőfal:</div>
   <div class="wallbox"><div class="walltxt" id="walltxt"></div></div>
   <div class="reacts">
-   <button type="button" class="wallsave" id="wallsave" hidden>MENTÉS</button>
+   <span class="wallbtns"><button type="button" class="wallsave" id="wallsave" hidden>MENTÉS</button><button type="button" class="walldel" id="walldel" hidden>TÖRLÉS</button></span>
    <span class="rlist" id="rlist" hidden></span>
    <button type="button" class="rclr" id="rclr" hidden title="Emojik törlése" aria-label="Emojik törlése"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
    <span class="rwrap" id="rwrap">
@@ -814,15 +817,18 @@ if(ADMIN){
 }
 
 /* ---------- Üzenőfal (message wall) ---------- */
-let wallTA=null, pinned=false, fullOpen=false, rtimer=null, pickerP=null;
+let wallTA=null, wallSynced='', pinned=false, fullOpen=false, rtimer=null, pickerP=null;
 const grow=ta=>{ ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; };
-const wallDirty=()=>!!(ADMIN&&wallTA&&wallTA.value.trim()!==((state.wall&&state.wall.text)||''));
+const wallEdited=()=>!!(wallTA&&wallTA.value.trim()!==wallSynced);
+const wallDiffers=()=>!!(wallTA&&wallTA.value.trim()!==((state.wall&&state.wall.text)||''));
+const saveCache=()=>{ try{ localStorage.setItem(CACHE_KEY,JSON.stringify(state)); }catch(e){} };
 function renderWall(){
   const w=state.wall||{text:'',emojis:[]}, em=w.emojis||[];
   $('#wall').hidden=!ADMIN&&!w.text;
   if(ADMIN&&wallTA){
-    if(document.activeElement!==wallTA&&!wallDirty()){ wallTA.value=w.text; grow(wallTA); }
-    $('#wallsave').hidden=!wallDirty();
+    if(document.activeElement!==wallTA&&!wallEdited()){ wallTA.value=w.text; wallSynced=w.text; grow(wallTA); }
+    $('#wallsave').hidden=!wallDiffers();
+    $('#walldel').hidden=!w.text;
   }else if(!ADMIN) $('#walltxt').textContent=w.text;
   const list=$('#rlist'); list.textContent='';
   for(const e of em){ const sp=document.createElement('span'); sp.textContent=e; list.append(sp); }
@@ -838,7 +844,7 @@ async function react(em){
   w.emojis=w.emojis||[];
   closeWall();
   if(w.emojis.includes(em)) return;
-  w.emojis.push(em); renderWall();
+  w.emojis.push(em); renderWall(); saveCache();
   try{ await post({action:'react',emoji:em}); }
   catch(e){ say('Nem sikerült elküldeni az emojit.'); load(); }
 }
@@ -859,7 +865,7 @@ async function openFull(){
 async function saveWall(){
   const text=wallTA.value.trim().slice(0,400), w=state.wall||{text:'',emojis:[]};
   state.wall={text,emojis:text!==w.text?[]:(w.emojis||[])};
-  wallTA.value=text; renderWall();
+  wallTA.value=text; wallSynced=text; renderWall(); saveCache();
   try{ await post({action:'wall',text,code:ADMIN}); say(''); }
   catch(e){ say(e.message==='wrong code'?'Hibás admin kód, az üzenet nem mentődött.':'Nem sikerült menteni az üzenetet. Próbáld újra.'); load(); }
 }
@@ -867,11 +873,16 @@ if(ADMIN){
   wallTA=document.createElement('textarea'); wallTA.className='walledit'; wallTA.rows=2; wallTA.maxLength=400;
   wallTA.placeholder='Írj üzenetet a kollégáknak…'; wallTA.setAttribute('aria-label','Üzenőfal szövege');
   $('#walltxt').replaceWith(wallTA);
-  wallTA.addEventListener('input',()=>{ grow(wallTA); $('#wallsave').hidden=!wallDirty(); });
+  wallTA.addEventListener('input',()=>{ grow(wallTA); $('#wallsave').hidden=!wallDiffers(); });
   $('#wallsave').addEventListener('click',saveWall);
+  $('#walldel').addEventListener('click',async()=>{
+    const ok=await confirmPop($('#walldel'),'Biztosan törölni akarod?','Igen','Nem');
+    if(!ok) return;
+    wallTA.value=''; await saveWall();
+  });
   $('#rclr').addEventListener('click',async()=>{
     if(state.wall) state.wall.emojis=[];
-    renderWall();
+    renderWall(); saveCache();
     try{ await post({action:'wallclear',code:ADMIN}); }
     catch(e){ say('Nem sikerült törölni az emojikat. Próbáld újra.'); load(); }
   });
